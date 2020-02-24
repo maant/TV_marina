@@ -64,6 +64,7 @@ class BankTransactionViewSet(viewsets.ModelViewSet):
 
         raise PermissionDenied()
 
+    @staticmethod
     def validate_accounts(user, acc_from, acc_to, transfer_amount):
         acc_from_obj = BankAccount.objects.filter(account_number=acc_from)
         acc_to_obj = BankAccount.objects.filter(account_number=acc_to)
@@ -78,9 +79,9 @@ class BankTransactionViewSet(viewsets.ModelViewSet):
     def create(self, request, *args, **kwargs):
         user = request.user
         if user and user.is_authenticated:
-            transfer_amount = request.data.get('transfer_amount')
-            acc_from = request.data.get('acc_from')
-            acc_to = request.data.get('acc_to')
+            transfer_amount = int(request.data.get('transfer_amount'))
+            acc_from = int(request.data.get('acc_from'))
+            acc_to = int(request.data.get('acc_to'))
 
             acc_from_obj, acc_to_obj = self.validate_accounts(user, acc_from, acc_to, transfer_amount)
 
