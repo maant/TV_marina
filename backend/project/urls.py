@@ -1,17 +1,17 @@
-from django.contrib.auth import views as auth_views
+from django.conf.urls import url
 from django.urls import include, path
 
 from rest_framework import routers
 
-from backend.bankapi import views as bankapi_views
-from . import views
+from bankapi.views import UserViewSet
 
 
 router = routers.DefaultRouter()
-router.register(r'users', bankapi_views.UserViewSet)
+router.register(r'users', UserViewSet)
 
 
 urlpatterns = [
     path('', include(router.urls)),
     path('auth/', include('rest_framework.urls', namespace='rest_framework')),
+    url(r'^api/', include('bankapi.urls'))
 ]

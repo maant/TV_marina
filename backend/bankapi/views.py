@@ -1,6 +1,16 @@
-from django.contrib.auth.models import User, Group
+from django.contrib.auth.models import User
+from django.db.models import F
+from django.db import transaction
+
 from rest_framework import viewsets
-from .serializers import UserSerializer
+from rest_framework.response import Response
+from rest_framework.exceptions import APIException, PermissionDenied
+
+from .models import BankTransaction, BankAccount
+from .permissions import IsAccountAdminOrReadOnly
+from .serializers import (
+    UserSerializer, BankTransactionSerializer, BankAccountSerializer,
+)
 
 
 class UserViewSet(viewsets.ModelViewSet):
@@ -9,3 +19,74 @@ class UserViewSet(viewsets.ModelViewSet):
     """
     queryset = User.objects.all().order_by('-date_joined')
     serializer_class = UserSerializer
+    permission_classes = [IsAccountAdminOrReadOnly]
+
+
+class BankAccountViewSet(viewsets.ModelViewSet):
+    """
+    API to manage and look for bank accounts
+    """
+    queryset = BankAccount.objects.all().order_by('owner')
+    serializer_class = BankAccountSerializer
+
+    def list(self, request, *args, **kwargs):
+        user = request.user
+        if user:
+            if user.is_superuser:
+                return super().list(request, *args, **kwargs)
+            if user.is_authenticated:
+                queryset = self.get_queryset().filter(owner__exact=user)
+                serializer = self.get_serializer(queryset, many=True)
+                return Response(serializer.data)
+
+        raise PermissionDenied()
+
+
+class BankTransactionViewSet(viewsets.ModelViewSet):
+    """
+    API to manage and look for users transactions
+
+    API endpoint that allows authenticated users
+    to swap money from self-accounts to any account
+    """
+    queryset = BankTransaction.objects.all().order_by('acc_from')
+    serializer_class = BankTransactionSerializer
+
+    def list(self, request, *args, **kwargs):
+        user = request.user
+        if user:
+            if user.is_superuser:
+                return super().list(request, *args, **kwargs)
+            if user.is_authenticated:
+                queryset = BankTransaction.objects.annotate(acc_from__owner=F('user'))
+                serializer = BankTransactionSerializer(queryset, many=True)
+                return Response(serializer.data)
+
+        raise PermissionDenied()
+
+    def validate_accounts(user, acc_from, acc_to, transfer_amount):
+        acc_from_obj = BankAccount.objects.filter(account_number=acc_from)
+        acc_to_obj = BankAccount.objects.filter(account_number=acc_to)
+        if len(acc_from_obj) != 1 or len(acc_to_obj) != 1 or acc_from_obj[0].owner != user:
+            raise PermissionDenied()
+
+        if acc_from_obj[0].account_balance - transfer_amount < 0:
+            raise APIException('Недостаточно средств')
+
+        return acc_from_obj, acc_to_obj
+
+    def create(self, request, *args, **kwargs):
+        user = request.user
+        if user and user.is_authenticated:
+            transfer_amount = request.data.get('transfer_amount')
+            acc_from = request.data.get('acc_from')
+            acc_to = request.data.get('acc_to')
+
+            acc_from_obj, acc_to_obj = self.validate_accounts(user, acc_from, acc_to, transfer_amount)
+
+            with transaction.atomic():
+                BankTransaction.create(transfer_amount=transfer_amount, acc_from=acc_from, acc_to=acc_to)
+                acc_from_obj.account_balance -= transfer_amount
+                acc_to_obj.account_balance += transfer_amount
+
+                self.validate_accounts(user, acc_from, acc_to, 0)
