@@ -74,7 +74,7 @@ class BankTransactionViewSet(viewsets.ModelViewSet):
         if acc_from_obj[0].account_balance - transfer_amount < 0:
             raise APIException('Недостаточно средств')
 
-        return acc_from_obj, acc_to_obj
+        return acc_from_obj.first(), acc_to_obj.first()
 
     def create(self, request, *args, **kwargs):
         user = request.user
@@ -85,9 +85,17 @@ class BankTransactionViewSet(viewsets.ModelViewSet):
 
             acc_from_obj, acc_to_obj = self.validate_accounts(user, acc_from, acc_to, transfer_amount)
 
-            with transaction.atomic():
-                BankTransaction.create(transfer_amount=transfer_amount, acc_from=acc_from, acc_to=acc_to)
+            with transaction.atomic():  # TODO (WARNING) check if we can get here a raise condition
+                # if this code executed at exact same time for single acc_from_obj
+                # two different transactions could be created for same account_balance value
+                # in sqlite we can see that so some of transactions was created but account_balance has no changes
+                # simple way to reproduce set breakpoint at next line and make two different requests transferring
+                # balance from acc1 to acc2 and second one from acc1 to acc3 after both requests hit the breakpoint
+                # just run both of them
+                BankTransaction.create(transfer_amount=transfer_amount, acc_from=acc_from_obj, acc_to=acc_to_obj)
                 acc_from_obj.account_balance -= transfer_amount
                 acc_to_obj.account_balance += transfer_amount
-
-                self.validate_accounts(user, acc_from, acc_to, 0)
+                acc_from_obj.save()
+                acc_to_obj.save()
+                self.validate_accounts(user, acc_from, acc_to, 0)  # <- why is this?
+        return Response('OK')

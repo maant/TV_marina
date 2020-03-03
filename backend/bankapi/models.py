@@ -35,6 +35,11 @@ class BankTransaction(models.Model):
                                related_name='account_to')
     transfer_amount = models.PositiveIntegerField()
 
+    @classmethod
+    def create(cls, transfer_amount=transfer_amount, acc_from=acc_from, acc_to=acc_to):
+        entity = cls(transfer_amount=transfer_amount, acc_from=acc_from, acc_to=acc_to)
+        entity.save()
+
     def __str__(self):
         return 'Transact {0} roubles from {1} to {2} account'.format(
             self.transfer_amount, self.acc_from, self.acc_to,
